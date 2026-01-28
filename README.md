@@ -1,6 +1,4 @@
-Below is a clean, student-friendly **README.md** you can directly use in your GitHub repository.
 
----
 
 # CS G524 – Advanced Computer Architecture
 
