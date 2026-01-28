@@ -201,41 +201,41 @@ $$
 .data
 pi:     .double 3.141592653589793
 deg:    .double 30.0
-one:    .double 1.0
 
 .text
 .globl main
 main:
-    # Load degree value
-    fld f0, deg
+    # Load address of deg and read value
+    la t0, deg
+    fld f0, 0(t0)          # f0 = degree value
 
-    # Convert degrees to radians: x * pi / 180
-    fld f1, pi
+    # Load address of pi and read value
+    la t1, pi
+    fld f1, 0(t1)          # f1 = pi
+
+    # Convert degrees to radians: x = x * pi / 180
     fmul.d f0, f0, f1
 
-    li t0, 180
-    fcvt.d.w f2, t0
-    fdiv.d f0, f0, f2     # f0 = x in radians
+    li t2, 180
+    fcvt.d.w f2, t2
+    fdiv.d f0, f0, f2      # f0 = radians
 
-    # Compute sin(x) using first 3 terms
-    fmul.d f3, f0, f0     # x^2
-    fmul.d f4, f3, f0     # x^3
+    # Maclaurin sin(x): x - x^3 / 3!
+    fmul.d f3, f0, f0      # x^2
+    fmul.d f4, f3, f0      # x^3
 
-    # term1 = x
-    fmv.d f10, f0
+    li t3, 6               # 3!
+    fcvt.d.w f5, t3
+    fdiv.d f4, f4, f5      # x^3 / 6
 
-    # term2 = x^3 / 6
-    li t1, 6
-    fcvt.d.w f5, t1
-    fdiv.d f4, f4, f5
+    fsub.d f10, f0, f4     # sin(x) approximation
 
-    fsub.d f10, f10, f4   # sin(x)
-
-    # Print sin(x)
+    # Print result
     fmv.d fa0, f10
-    li a7, 3
+    li a7, 3               # print double
     ecall
 
+    # Exit
     li a7, 10
     ecall
 ```
