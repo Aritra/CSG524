@@ -109,9 +109,9 @@ main:
 
 Compute:
 
-[
+$$
 P(x) = ax^3 + bx^2 + cx + d
-]
+$$
 
 #### **Suboptimal Code (Poor Register Reuse)**
 
@@ -257,9 +257,9 @@ Given a **hardcoded word array** of fixed size:
 2. Find the **maximum** and **minimum** elements
 3. Compute and print the **range**:
 
-[
+$$
 \text{Range} = \text{max} - \text{min}
-]
+$$
 
 ---
 
