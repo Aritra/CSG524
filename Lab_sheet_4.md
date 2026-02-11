@@ -263,7 +263,8 @@ done_line:
     li a7, 10             # Exit
     ecall
 ```
-
+After running the code with bitmap display connected (connect before executing code), with following settings (in the image) you should see this:
+![RARS Bitmap display](bitmap_render.png)
 
 ---
 
