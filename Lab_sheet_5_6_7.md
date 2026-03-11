@@ -886,7 +886,6 @@ qemu-system-riscv64 -machine virt -cpu rv64 -m 512M -smp 2 \
 
 ## Appendix
 
-````markdown
 ---
 
 ## Inspecting Registers in Bare-Metal RISC-V on QEMU
@@ -1182,4 +1181,4 @@ qemu-system-riscv64 -machine virt -cpu rv64 -m 128M \
 - **Cycle counting**: read `mcycle` before and after a block of code to measure elapsed cycles — no OS timer required.
 - **`mhartid` in multi-core**: with `-smp 4`, each hart reads a unique value from `mhartid`. Use this in `start.S` to branch only hart 0 into `main` and park the rest.
 - **Privilege traps on CSR access**: reading a machine-mode CSR from S-mode or U-mode triggers an illegal instruction exception. Only read M-mode CSRs while running in M-mode (which is the default in bare-metal with `-bios none`).
-````
+
