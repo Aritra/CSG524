@@ -473,15 +473,15 @@ Linux on RISC-V requires three components:
 ┌─────────────────────────────────────────────┐
 │  QEMU virt machine                          │
 │                                             │
-│  ┌─────────────┐  boots  ┌───────────────┐ │
-│  │  OpenSBI    │ ──────► │  Linux Kernel │ │
-│  │  (M-mode)   │         │  (S-mode)     │ │
-│  └─────────────┘         └───────┬───────┘ │
-│                                  │ mounts  │
-│                              ┌───▼──────┐  │
-│                              │ initramfs│  │
-│                              │ (BusyBox)│  │
-│                              └──────────┘  │
+│  ┌─────────────┐  boots  ┌───────────────┐  │
+│  │  OpenSBI    │ ──────► │  Linux Kernel │  │
+│  │  (M-mode)   │         │  (S-mode)     │  │
+│  └─────────────┘         └───────┬───────┘  │
+│                                  │ mounts   │
+│                              ┌───▼──────┐   │
+│                              │ initramfs│   │
+│                              │ (BusyBox)│   │
+│                              └──────────┘   │
 └─────────────────────────────────────────────┘
 ```
 
@@ -883,3 +883,303 @@ qemu-system-riscv64 -machine virt -cpu rv64 -m 512M -smp 2 \
 - [Linux RISC-V architecture docs](https://www.kernel.org/doc/html/latest/arch/riscv/index.html)
 - [RISC-V ISA Specification](https://riscv.org/technical/specifications/)
 - [BusyBox](https://busybox.net/)
+
+## Appendix
+
+````markdown
+---
+
+## Inspecting Registers in Bare-Metal RISC-V on QEMU
+
+---
+
+### Method 1: GDB via QEMU's Built-in GDB Stub
+
+This gives full register visibility — GPRs, CSRs, and FP registers.
+
+**Launch QEMU in debug mode:**
+
+```bash
+qemu-system-riscv64 -machine virt -cpu rv64 -m 128M \
+  -nographic -bios none -kernel baremetal.elf \
+  -s -S
+```
+
+**Connect GDB in a second terminal:**
+
+```bash
+gdb-multiarch baremetal.elf
+```
+
+**Inside GDB:**
+
+```gdb
+(gdb) set architecture riscv:rv64
+(gdb) target remote localhost:1234
+
+# All general-purpose registers (x0–x31 + pc)
+(gdb) info registers
+
+# A single register
+(gdb) info registers sp
+(gdb) print $a0
+
+# ALL registers including FP and CSRs
+(gdb) info all-registers
+```
+
+---
+
+### Method 2: QEMU Monitor
+
+The QEMU monitor is a built-in shell accessible while the VM is running — no GDB needed.
+
+**Launch with a split UART + monitor:**
+
+```bash
+qemu-system-riscv64 -machine virt -cpu rv64 -m 128M \
+  -nographic -bios none -kernel baremetal.elf \
+  -serial mon:stdio
+```
+
+Switch to the monitor with `Ctrl+A C`, then:
+
+```
+(qemu) info registers         # GPRs + PC + key CSRs
+(qemu) info registers -a      # ALL registers including all CSRs
+(qemu) x /10i $pc             # Disassemble 10 instructions at PC
+(qemu) xp /8xw 0x80000000     # Hex dump memory at address
+```
+
+Switch back to the serial console with `Ctrl+A C` again. Exit QEMU with `Ctrl+A X`.
+
+---
+
+### Method 3: Read CSRs Directly in C Code
+
+You can read any CSR from bare-metal C and print it over UART — useful for runtime
+inspection without a debugger attached.
+
+#### `csr.h` — CSR read/write macros
+
+```c
+#ifndef CSR_H
+#define CSR_H
+
+#include <stdint.h>
+
+// Generic CSR read — works for any CSR name
+#define CSR_READ(csr) ({                            \
+    uint64_t _val;                                  \
+    asm volatile ("csrr %0, " #csr : "=r"(_val));  \
+    _val;                                           \
+})
+
+// Generic CSR write
+#define CSR_WRITE(csr, val) \
+    asm volatile ("csrw " #csr ", %0" :: "r"((uint64_t)(val)))
+
+// Snapshot all 32 GPRs into a uint64_t[32] array
+#define READ_GPRS(gprs) asm volatile (  \
+    "sd x0,   0(%0)\n"  "sd x1,   8(%0)\n"  \
+    "sd x2,  16(%0)\n"  "sd x3,  24(%0)\n"  \
+    "sd x4,  32(%0)\n"  "sd x5,  40(%0)\n"  \
+    "sd x6,  48(%0)\n"  "sd x7,  56(%0)\n"  \
+    "sd x8,  64(%0)\n"  "sd x9,  72(%0)\n"  \
+    "sd x10, 80(%0)\n"  "sd x11, 88(%0)\n"  \
+    "sd x12, 96(%0)\n"  "sd x13,104(%0)\n"  \
+    "sd x14,112(%0)\n"  "sd x15,120(%0)\n"  \
+    "sd x16,128(%0)\n"  "sd x17,136(%0)\n"  \
+    "sd x18,144(%0)\n"  "sd x19,152(%0)\n"  \
+    "sd x20,160(%0)\n"  "sd x21,168(%0)\n"  \
+    "sd x22,176(%0)\n"  "sd x23,184(%0)\n"  \
+    "sd x24,192(%0)\n"  "sd x25,200(%0)\n"  \
+    "sd x26,208(%0)\n"  "sd x27,216(%0)\n"  \
+    "sd x28,224(%0)\n"  "sd x29,232(%0)\n"  \
+    "sd x30,240(%0)\n"  "sd x31,248(%0)\n"  \
+    :: "r"(gprs) : "memory")
+
+#endif
+```
+
+#### `print.h` — Minimal hex printer over UART (no printf needed)
+
+```c
+#ifndef PRINT_H
+#define PRINT_H
+
+#include "uart.h"
+#include <stdint.h>
+
+static void print_hex64(uint64_t val) {
+    uart_puts("0x");
+    for (int i = 60; i >= 0; i -= 4) {
+        uint8_t nibble = (val >> i) & 0xF;
+        uart_putc(nibble < 10 ? '0' + nibble : 'a' + nibble - 10);
+    }
+}
+
+static void print_reg(const char *name, uint64_t val) {
+    uart_puts("  ");
+    uart_puts(name);
+    uart_puts(" = ");
+    print_hex64(val);
+    uart_puts("\r\n");
+}
+
+#endif
+```
+
+#### `main.c` — Dump GPRs + CSRs at runtime
+
+```c
+#include "uart.h"
+#include "csr.h"
+#include "print.h"
+#include <stdint.h>
+
+static const char *gpr_names[32] = {
+    "zero","ra","sp","gp","tp",
+    "t0","t1","t2","s0","s1",
+    "a0","a1","a2","a3","a4","a5","a6","a7",
+    "s2","s3","s4","s5","s6","s7","s8","s9","s10","s11",
+    "t3","t4","t5","t6"
+};
+
+void dump_gprs(void) {
+    uint64_t gprs[32];
+    READ_GPRS(gprs);
+    uart_puts("\r\n=== General Purpose Registers ===\r\n");
+    for (int i = 0; i < 32; i++)
+        print_reg(gpr_names[i], gprs[i]);
+}
+
+void dump_csrs(void) {
+    uart_puts("\r\n=== Machine-Mode CSRs ===\r\n");
+
+    uart_puts("-- Machine Info --\r\n");
+    print_reg("mvendorid", CSR_READ(mvendorid));
+    print_reg("marchid  ", CSR_READ(marchid));
+    print_reg("mimpid   ", CSR_READ(mimpid));
+    print_reg("mhartid  ", CSR_READ(mhartid));
+
+    uart_puts("-- Machine Status --\r\n");
+    print_reg("mstatus  ", CSR_READ(mstatus));
+    print_reg("misa     ", CSR_READ(misa));
+
+    uart_puts("-- Trap Handling --\r\n");
+    print_reg("mtvec    ", CSR_READ(mtvec));
+    print_reg("mscratch ", CSR_READ(mscratch));
+    print_reg("mepc     ", CSR_READ(mepc));
+    print_reg("mcause   ", CSR_READ(mcause));
+    print_reg("mtval    ", CSR_READ(mtval));
+
+    uart_puts("-- Interrupts --\r\n");
+    print_reg("mie      ", CSR_READ(mie));
+    print_reg("mip      ", CSR_READ(mip));
+
+    uart_puts("-- Counters --\r\n");
+    print_reg("mcycle   ", CSR_READ(mcycle));
+    print_reg("minstret ", CSR_READ(minstret));
+    print_reg("time     ", CSR_READ(time));
+
+    uart_puts("-- Physical Memory Protection --\r\n");
+    print_reg("pmpcfg0  ", CSR_READ(pmpcfg0));
+    print_reg("pmpaddr0 ", CSR_READ(pmpaddr0));
+}
+
+void decode_mstatus(void) {
+    uint64_t ms = CSR_READ(mstatus);
+    uart_puts("\r\n=== mstatus decoded ===\r\n");
+
+    uart_puts("  MIE  (M-mode global interrupt enable) : ");
+    uart_putc(((ms >>  3) & 1) ? '1' : '0'); uart_puts("\r\n");
+    uart_puts("  SIE  (S-mode global interrupt enable) : ");
+    uart_putc(((ms >>  1) & 1) ? '1' : '0'); uart_puts("\r\n");
+    uart_puts("  MPIE (previous MIE)                   : ");
+    uart_putc(((ms >>  7) & 1) ? '1' : '0'); uart_puts("\r\n");
+
+    uart_puts("  MPP  (previous privilege mode)        : ");
+    switch ((ms >> 11) & 0x3) {
+        case 3:  uart_puts("Machine\r\n");    break;
+        case 1:  uart_puts("Supervisor\r\n"); break;
+        default: uart_puts("User\r\n");
+    }
+
+    uart_puts("  FS   (FP unit state)                  : ");
+    const char *fs_str[] = {"Off","Initial","Clean","Dirty"};
+    uart_puts(fs_str[(ms >> 13) & 0x3]); uart_puts("\r\n");
+}
+
+void decode_misa(void) {
+    uint64_t isa = CSR_READ(misa);
+    uart_puts("\r\n=== misa decoded (ISA extensions) ===\r\n");
+    for (int i = 0; i < 26; i++) {
+        if (isa & (1UL << i)) {
+            uart_puts("  Extension ");
+            uart_putc('A' + i);
+            uart_puts(" supported\r\n");
+        }
+    }
+    uart_puts("  MXL (machine XLEN): ");
+    switch ((isa >> 62) & 0x3) {
+        case 1:  uart_puts("32-bit\r\n");  break;
+        case 2:  uart_puts("64-bit\r\n");  break;
+        default: uart_puts("128-bit\r\n");
+    }
+}
+
+void main(void) {
+    uart_puts("\r\n*** RISC-V Register Inspector ***\r\n");
+    dump_gprs();
+    dump_csrs();
+    decode_mstatus();
+    decode_misa();
+    uart_puts("\r\nDone.\r\n");
+    while (1);
+}
+```
+
+**Build with `-O0`** so the compiler does not optimise away or reorder register contents:
+
+```bash
+riscv64-linux-gnu-gcc -march=rv64gc -mabi=lp64d \
+  -ffreestanding -nostdlib -O0 \
+  -T link.ld -o inspector.elf \
+  start.S main.c
+
+qemu-system-riscv64 -machine virt -cpu rv64 -m 128M \
+  -nographic -bios none -kernel inspector.elf
+```
+
+---
+
+### Key CSR Reference
+
+| CSR | Privilege | Purpose |
+|---|---|---|
+| `mhartid` | M | Hardware thread ID — which core you are on |
+| `misa` | M | ISA extensions active (I, M, A, F, D, C…) |
+| `mstatus` | M | Privilege level, interrupt enable state, FP state |
+| `mtvec` | M | Base address of trap/interrupt handler |
+| `mepc` | M | PC saved when the last trap occurred |
+| `mcause` | M | Cause of the last trap |
+| `mtval` | M | Faulting address or bad instruction word |
+| `mie` | M | Interrupt enable bits (per source) |
+| `mip` | M | Interrupt pending bits (per source) |
+| `mcycle` | M | Cycle counter since reset |
+| `minstret` | M | Instructions-retired counter |
+| `pmpcfg0..3` | M | Physical memory protection configuration |
+| `satp` | S | Page-table base address + paging mode (Sv39/Sv48) |
+| `sstatus` | S | Supervisor-mode status register |
+| `sepc` / `scause` | S | Supervisor trap PC and cause |
+
+---
+
+### Tips
+
+- **`mcause` bit 63**: set means interrupt, cleared means synchronous exception. The lower bits are the cause code — e.g. `0x2` = illegal instruction, `0xB` = machine external interrupt.
+- **Cycle counting**: read `mcycle` before and after a block of code to measure elapsed cycles — no OS timer required.
+- **`mhartid` in multi-core**: with `-smp 4`, each hart reads a unique value from `mhartid`. Use this in `start.S` to branch only hart 0 into `main` and park the rest.
+- **Privilege traps on CSR access**: reading a machine-mode CSR from S-mode or U-mode triggers an illegal instruction exception. Only read M-mode CSRs while running in M-mode (which is the default in bare-metal with `-bios none`).
+````
