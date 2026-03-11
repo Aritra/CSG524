@@ -500,7 +500,7 @@ The fastest way to boot Linux on RISC-V QEMU is to use a pre-built Debian/Ubuntu
 sudo apt install -y qemu-system-misc opensbi u-boot-qemu
 
 # Download a pre-built RISC-V Debian image
-wget https://cdimage.debian.org/cdimage/ports/snapshots/2024-03-01/debian-12-nocloud-riscv64.qcow2
+wget https://cloud.debian.org/images/cloud/trixie/latest/debian-13-nocloud-riscv64.qcow2
 
 # Boot it
 qemu-system-riscv64 \
