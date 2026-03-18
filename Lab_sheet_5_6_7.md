@@ -465,6 +465,53 @@ Inside GDB:
 ```
 Note: step has a shortcut - "si" to execute one riscv instruction at a time. 
 
+### Useful command for GDB while debugging. 
+
+```
+
+# Step one instruction
+(gdb) stepi
+
+# Step one instruction but don't descend into calls (step over)
+(gdb) nexti
+
+# Disassemble around current PC
+(gdb) disassemble $pc,+40
+
+# Watch a memory address for changes
+(gdb) watch *(uint64_t*)0x80001000
+
+# Read a CSR by its address number (e.g. mstatus = 0x300)
+(gdb) info registers mstatus
+
+# Print a variable
+(gdb) print my_variable
+
+# Hex dump memory (8 words of 8 bytes each)
+(gdb) x/8gx 0x80000000
+
+# Enable TUI mode (split: source on top, gdb prompt below)
+(gdb) tui enable
+(gdb) layout split   # source + disassembly
+(gdb) layout regs    # adds register panel
+
+# Refresh TUI if display glitches
+(gdb) refresh
+```
+
+---
+
+### TUI Layout Reference
+
+Once inside GDB TUI (`tui enable`), cycle through layouts:
+```
+layout src        → source code only
+layout asm        → disassembly only
+layout split      → source + disassembly
+layout regs       → adds register panel on top
+Ctrl+X A          → toggle TUI on/off
+Ctrl+L            → redraw if the screen corrupts
+
 ---
 
 ## Part 2 — Linux on RISC-V
