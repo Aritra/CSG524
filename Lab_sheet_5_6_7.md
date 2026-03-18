@@ -358,6 +358,7 @@ CROSS=riscv64-linux-gnu
 # Compile assembly startup
 ${CROSS}-gcc -march=rv64gc -mabi=lp64d \
     -ffreestanding -nostdlib \
+    -O0 -g -gdwarf-2 \
     -c start.S -o start.o
 
 # Compile C code
@@ -458,10 +459,11 @@ Inside GDB:
 (gdb) break main
 (gdb) continue
 (gdb) layout src
-(gdb) step
+(gdb) stepi 
 (gdb) info registers
 (gdb) x/10i $pc
 ```
+Note: step has a shortcut - "si" to execute one riscv instruction at a time. 
 
 ---
 
