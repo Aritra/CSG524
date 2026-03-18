@@ -1203,6 +1203,291 @@ qemu-system-riscv64 -machine virt -cpu rv64 -m 128M \
 
 ---
 
+## Running a GUI Linux on Virtual RISC-V in QEMU
+
+---
+
+### Overview
+
+| Approach | Difficulty | What you get |
+|---|---|---|
+| Fedora RISC-V pre-built image | ⭐ Easy | Full GNOME desktop, out of the box |
+| Ubuntu/Debian + XFCE | ⭐⭐ Medium | Lightweight desktop on a self-built image |
+| Build Buildroot with X11 | ⭐⭐⭐ Advanced | Minimal custom GUI rootfs from scratch |
+
+QEMU's `virt` machine supports two display backends you can use:
+
+| Flag | What it does |
+|---|---|
+| `-display gtk` | Opens a GTK window on your host desktop |
+| `-display sdl` | Opens an SDL window (slightly faster) |
+| `-display vnc=:0` | Headless — connect via a VNC client |
+| `-device virtio-gpu-pci` | Paravirtualised GPU (needed for GUI) |
+| `-device VGA` | Basic VGA framebuffer fallback |
+
+---
+
+### Install Host Display Dependencies
+
+Before running any GUI QEMU instance, install the display libraries on your Ubuntu 24.04 host:
+```bash
+# GTK display support
+sudo apt install -y qemu-system-misc
+
+# If building QEMU from source, add these before ./configure
+sudo apt install -y \
+  libgtk-3-dev \
+  libsdl2-dev \
+  libvte-2.91-dev \
+  libpixman-1-dev
+
+# VNC client (if using VNC mode)
+sudo apt install -y tigervnc-viewer
+```
+
+Verify your QEMU was built with GTK support:
+```bash
+qemu-system-riscv64 -display help
+# Should list: gtk, sdl, vnc, curses, none
+```
+
+---
+
+### Option A — Fedora RISC-V (Easiest, Full GNOME Desktop)
+
+The Fedora project maintains official RISC-V images with a full GNOME desktop.
+This is the fastest way to get a working GUI.
+
+#### Step 1 — Install dependencies
+```bash
+sudo apt install -y qemu-system-misc xz-utils
+```
+
+#### Step 2 — Download the Fedora RISC-V image
+```bash
+mkdir -p ~/riscv-gui && cd ~/riscv-gui
+
+# Download latest Fedora RISC-V Developer image (~5 GB)
+wget https://dl.fedoraproject.org/pub/alt/risc-v/repo/virt-builder-images/images/Fedora-Developer-39-20231127.n.0-sda.raw.xz
+
+# Decompress
+xz -d Fedora-Developer-39-20231127.n.0-sda.raw.xz
+
+# Resize the disk to give the GUI more room (optional but recommended)
+qemu-img resize Fedora-Developer-39-20231127.n.0-sda.raw +10G
+```
+
+#### Step 3 — Download the required firmware files
+```bash
+# U-Boot and OpenSBI for Fedora RISC-V
+wget https://dl.fedoraproject.org/pub/alt/risc-v/repo/virt-builder-images/images/Fedora-Developer-39-20231127.n.0-fw_payload-uboot-qemu-virt-smode.elf
+```
+
+#### Step 4 — Boot with GUI
+```bash
+qemu-system-riscv64 \
+  -machine virt \
+  -cpu rv64 \
+  -m 4G \
+  -smp 4 \
+  -display gtk,zoom-to-fit=on \
+  -device virtio-gpu-pci \
+  -device virtio-keyboard-pci \
+  -device virtio-mouse-pci \
+  -bios Fedora-Developer-39-20231127.n.0-fw_payload-uboot-qemu-virt-smode.elf \
+  -drive file=Fedora-Developer-39-20231127.n.0-sda.raw,format=raw,if=virtio \
+  -netdev user,id=net0 \
+  -device virtio-net-pci,netdev=net0 \
+  -device virtio-rng-pci
+```
+
+Login: `root` / `fedora_rocks!` (or check the Fedora RISC-V wiki for current credentials).
+
+---
+
+### Option B — Debian RISC-V + XFCE (Lightweight Desktop)
+
+XFCE is much lighter than GNOME — recommended if you have limited RAM or want
+faster boot times.
+
+#### Step 1 — Download base Debian RISC-V image
+```bash
+mkdir -p ~/riscv-gui && cd ~/riscv-gui
+
+wget https://cdimage.debian.org/cdimage/ports/snapshots/2024-03-01/debian-12-nocloud-riscv64.qcow2
+
+# Give it more space
+qemu-img resize debian-12-nocloud-riscv64.qcow2 +8G
+```
+
+#### Step 2 — First boot (headless) to install XFCE
+
+Boot headless first to install the desktop packages:
+```bash
+sudo apt install -y opensbi u-boot-qemu
+
+qemu-system-riscv64 \
+  -machine virt \
+  -cpu rv64 \
+  -m 2G \
+  -smp 2 \
+  -nographic \
+  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_jump.elf \
+  -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
+  -drive file=debian-12-nocloud-riscv64.qcow2,format=qcow2,if=virtio \
+  -netdev user,id=net0 \
+  -device virtio-net-pci,netdev=net0 \
+  -append "root=/dev/vda1 rw console=ttyS0"
+```
+
+Inside the VM, install XFCE and a display manager:
+```bash
+apt update
+apt install -y \
+  xfce4 \
+  xfce4-terminal \
+  lightdm \
+  lightdm-gtk-greeter \
+  xserver-xorg \
+  xserver-xorg-video-fbdev \
+  fonts-dejavu \
+  firefox-esr
+
+# Enable the display manager at boot
+systemctl enable lightdm
+
+# Shut down cleanly
+poweroff
+```
+
+#### Step 3 — Reboot with GUI display
+```bash
+qemu-system-riscv64 \
+  -machine virt \
+  -cpu rv64 \
+  -m 2G \
+  -smp 2 \
+  -display gtk,zoom-to-fit=on \
+  -device virtio-gpu-pci \
+  -device virtio-keyboard-pci \
+  -device virtio-mouse-pci \
+  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_jump.elf \
+  -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
+  -drive file=debian-12-nocloud-riscv64.qcow2,format=qcow2,if=virtio \
+  -netdev user,id=net0 \
+  -device virtio-net-pci,netdev=net0 \
+  -append "root=/dev/vda1 rw console=tty0"
+```
+
+> Note: change `console=ttyS0` to `console=tty0` so the kernel sends output
+> to the framebuffer display instead of the serial port.
+
+---
+
+### Option C — VNC Mode (No Local Display Required)
+
+If you are on a headless server or WSL2 and cannot open a GTK window,
+use VNC instead:
+
+#### Launch QEMU with VNC backend
+```bash
+qemu-system-riscv64 \
+  -machine virt \
+  -cpu rv64 \
+  -m 2G \
+  -smp 2 \
+  -display vnc=:0 \
+  -device virtio-gpu-pci \
+  -device virtio-keyboard-pci \
+  -device virtio-mouse-pci \
+  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_jump.elf \
+  -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
+  -drive file=debian-12-nocloud-riscv64.qcow2,format=qcow2,if=virtio \
+  -netdev user,id=net0 \
+  -device virtio-net-pci,netdev=net0 \
+  -append "root=/dev/vda1 rw console=tty0"
+```
+
+#### Connect with a VNC client
+```bash
+# On the same machine
+vncviewer localhost:0
+
+# Or with tigervnc
+xtigervncviewer localhost:5900
+```
+
+VNC display numbers map to ports: `:0` = port `5900`, `:1` = port `5901`, etc.
+
+---
+
+### Display Device Reference
+```bash
+# Paravirtualised GPU — best performance, required for smooth GUI
+-device virtio-gpu-pci
+
+# Basic VGA — fallback, works without virtio-gpu driver in guest
+-device VGA
+
+# QXL — good for SPICE protocol (alternative to VNC)
+-device qxl-vga
+
+# Input devices (always add these alongside the GPU)
+-device virtio-keyboard-pci
+-device virtio-mouse-pci
+-device virtio-tablet-pci   # tablet gives absolute mouse positioning (no capture)
+```
+
+> Use `-device virtio-tablet-pci` instead of `-device virtio-mouse-pci` to avoid
+> mouse capture inside the QEMU window — the tablet sends absolute coordinates
+> so your cursor moves freely in and out of the VM window.
+
+---
+
+### Performance Tips
+```bash
+# Give the VM more cores — GUI benefits significantly from SMP
+-smp 4,cores=4
+
+# Use more RAM — GNOME needs at least 2G, XFCE is fine with 1G
+-m 2G
+
+# Enable KVM if your host supports it (massive speedup)
+# Note: KVM for RISC-V guest requires a RISC-V host; on x86 this is not available.
+# On a native RISC-V host (e.g. VisionFive 2, StarFive):
+-enable-kvm
+
+# Faster disk I/O with virtio and writeback cache
+-drive file=disk.qcow2,format=qcow2,if=virtio,cache=writeback
+
+# Increase video memory for higher resolutions
+-device virtio-gpu-pci,max_outputs=1,xres=1280,yres=720
+```
+
+---
+
+### Troubleshooting GUI Issues
+
+**Black screen after boot:**
+- Make sure `-device virtio-gpu-pci` is present — without it there is no framebuffer.
+- Check the kernel cmdline uses `console=tty0` not `console=ttyS0`.
+- Try falling back to `-device VGA` if virtio-gpu drivers are not in the guest kernel.
+
+**Mouse is captured and won't release:**
+- Press `Ctrl+Alt+G` to release mouse grab from the QEMU GTK window.
+- Switch to `-device virtio-tablet-pci` to avoid capture entirely.
+
+**GTK window not opening on the host:**
+- Ensure your host has a display: `echo $DISPLAY` should return `:0` or similar.
+- On WSL2, install an X server like VcXsrv or use the VNC option instead.
+
+**Very slow GUI:**
+- RISC-V emulation on x86 is pure software — expect roughly 10–20× slowdown vs native.
+- XFCE or a minimal window manager like Openbox will be significantly faster than GNOME.
+- Reduce resolution: `xres=1024,yres=768` on the virtio-gpu device.
+
+---
+
 ### Key CSR Reference
 
 | CSR | Privilege | Purpose |
