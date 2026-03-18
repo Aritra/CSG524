@@ -361,12 +361,12 @@ ${CROSS}-gcc -march=rv64gc -mabi=lp64d \
     -c start.S -o start.o
 
 # Compile C code
-${CROSS}-gcc -march=rv64gc -mabi=lp64d \
+${CROSS}-gcc -march=rv64gc -mabi=lp64d  -mcmodel=medany\
     -ffreestanding -nostdlib -O2 \
     -c main.c -o main.o
 
 # Link
-${CROSS}-gcc -march=rv64gc -mabi=lp64d \
+${CROSS}-gcc -march=rv64gc -mabi=lp64d -mcmodel=medany\
     -ffreestanding -nostdlib \
     -T link.ld \
     -o baremetal.elf \
