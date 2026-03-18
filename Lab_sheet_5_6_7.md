@@ -511,6 +511,7 @@ layout split      → source + disassembly
 layout regs       → adds register panel on top
 Ctrl+X A          → toggle TUI on/off
 Ctrl+L            → redraw if the screen corrupts
+```
 
 ---
 
