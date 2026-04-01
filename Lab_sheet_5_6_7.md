@@ -559,12 +559,9 @@ qemu-system-riscv64 \
   -m 1G \
   -smp 2 \
   -nographic \
-  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_jump.elf \
+  -bios /usr/lib/riscv64-linux-gnu/opensbi/generic/fw_jump.bin \
   -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
-  -drive file=debian-12-nocloud-riscv64.qcow2,format=qcow2 \
-  -append "root=/dev/vda1 rw console=ttyS0" \
-  -device virtio-blk-device,drive=hd0 \
-  -drive file=debian-12-nocloud-riscv64.qcow2,if=none,id=hd0 \
+  -drive file=debian-13-nocloud-riscv64.qcow2,format=qcow2,if=virtio \
   -netdev user,id=net0 \
   -device virtio-net-device,netdev=net0
 ```
